@@ -50,7 +50,7 @@ def train_model(
     model = ImageRestorationCNN().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
-    loss_fn = torch.nn.L1Loss()
+    loss_fn = torch.nn.SmoothL1Loss(beta=0.01)
     best_validation_loss = float('inf')
     model_parameters = sum(parameter.numel() for parameter in model.parameters())
 
