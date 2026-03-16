@@ -1,0 +1,5 @@
+torch
+opencv2-python
+scikit-image
+lpips
+numpy
