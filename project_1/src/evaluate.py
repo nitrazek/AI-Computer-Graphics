@@ -62,5 +62,5 @@ def evaluate(dataloader, model_path, result_csv='result.csv'):
 if __name__ == "__main__":
     dataset = ImageDataset(input_paths='../data/validation/noisy_001', target_paths='../data/validation/clean', data_offset=201, data_size=50)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    evaluate(dataloader, '../model/denoising_model.pth', result_csv='../results/denoising_results.csv')
+    evaluate(dataloader, '../models/denoising_model.pth', result_csv='../results/denoising_results.csv')
     evaluate(dataloader, '../model/deblurring_model.pth', result_csv='../results/deblurring_results.csv')
