@@ -21,9 +21,7 @@ if __name__ == "__main__":
 
     reconstructed_image = reconstruct_image('../models/denoising_model.pth', '../data/validation/blurred_3/0900_0.png')
 
-    cv2.imshow('Original Image', original_image) # type: ignore
-    cv2.imshow('Blurred Image', blurred_image) # type: ignore
-    cv2.imshow('Reconstructed Image', reconstructed_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    cv2.imwrite('original_image.png', original_image) # type: ignore
+    cv2.imwrite('blurred_image.png', blurred_image) # type: ignore
+    cv2.imwrite('reconstructed_image.png', reconstructed_image)
 

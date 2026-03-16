@@ -121,9 +121,26 @@ def evaluate_external_method(dataloader, restoration_method, result_csv='externa
 
 
 if __name__ == "__main__":
+    print('Evaluating denoising, with sigma=0.01')
     dataset = ImageDataset(input_paths='../data/validation/noisy_001', target_paths='../data/validation/clean', data_offset=0, data_size=50)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    evaluate(dataloader, '../models/denoising_model.pth', result_csv='../results/denoising_results.csv')
-    evaluate(dataloader, '../models/deblurring_model.pth', result_csv='../results/deblurring_results.csv')
-    evaluate_external_method(dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_results.csv')
-    evaluate_external_method(dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_results.csv')
+    evaluate(dataloader, '../models/denoising_001_model.pth', result_csv='../results/denoising_001_results.csv')
+    evaluate_external_method(dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_001_results.csv')
+    
+    print('Evaluating denoising, with sigma=0.03')
+    dataset = ImageDataset(input_paths='../data/validation/noisy_003', target_paths='../data/validation/clean', data_offset=0, data_size=50)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
+    evaluate(dataloader, '../models/denoising_003_model.pth', result_csv='../results/denoising_003_results.csv')
+    evaluate_external_method(dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_003_results.csv')
+    
+    print('Evaluating deblurring, with kernel size 3')
+    dataset = ImageDataset(input_paths='../data/validation/blurred_3', target_paths='../data/validation/clean', data_offset=0, data_size=50)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
+    evaluate(dataloader, '../models/deblurring_3_model.pth', result_csv='../results/deblurring_3_results.csv')
+    evaluate_external_method(dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_3_results.csv')
+
+    print('Evaluating deblurring, with kernel size 5')
+    dataset = ImageDataset(input_paths='../data/validation/blurred_5', target_paths='../data/validation/clean', data_offset=0, data_size=50)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
+    evaluate(dataloader, '../models/deblurring_5_model.pth', result_csv='../results/deblurring_5_results.csv')
+    evaluate_external_method(dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_5_results.csv')

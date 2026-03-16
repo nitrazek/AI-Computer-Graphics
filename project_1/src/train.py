@@ -32,5 +32,7 @@ def train_model(input_paths, target_paths, data_size, n_epoch=15, batch_size=10,
     print(f"Model saved to {save_path}.")
 
 if __name__ == "__main__":
-    train_model('../data/training/noisy_001', '../data/training/clean', 1000, save_path='../models/denoising_model.pth')
-    train_model('../data/training/blurred_3', '../data/training/clean', 1000, save_path='../models/deblurring_model.pth')
+    train_model('../data/training/noisy_001', '../data/training/clean', 1000, save_path='../models/denoising_001_model.pth')
+    train_model('../data/training/noisy_003', '../data/training/clean', 1000, save_path='../models/denoising_003_model.pth')
+    train_model('../data/training/blurred_3', '../data/training/clean', 1000, save_path='../models/deblurring_3_model.pth')
+    train_model('../data/training/blurred_5', '../data/training/clean', 1000, save_path='../models/deblurring_5_model.pth')
