@@ -4,9 +4,20 @@ import torch
 from torch.utils.data import Dataset
 
 class ImageDataset(Dataset):
-    def __init__(self, input_paths, target_paths, data_offset=0, data_size=200):
-        self.input_paths = sorted([os.path.join(input_paths, f) for f in os.listdir(input_paths) if f.endswith('.png')])[data_offset : data_offset + data_size]
-        self.target_paths = sorted([os.path.join(target_paths, f) for f in os.listdir(target_paths) if f.endswith('.png')])[data_offset : data_offset + data_size]
+    def __init__(self, input_paths, target_paths, data_offset=0, data_size=None):
+        input_files = sorted([f for f in os.listdir(input_paths) if f.endswith('.png')])
+        target_files = sorted([f for f in os.listdir(target_paths) if f.endswith('.png')])
+
+        if len(input_files) != len(target_files):
+            raise ValueError('Input and target folders contain a different number of images.')
+        if input_files != target_files:
+            raise ValueError('Input and target filenames do not match after sorting.')
+
+        end_index = None if data_size is None else data_offset + data_size
+        selected_files = input_files[data_offset:end_index]
+
+        self.input_paths = [os.path.join(input_paths, file_name) for file_name in selected_files]
+        self.target_paths = [os.path.join(target_paths, file_name) for file_name in selected_files]
 
     def __len__(self):
         return len(self.input_paths)

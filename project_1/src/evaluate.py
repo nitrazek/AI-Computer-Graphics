@@ -1,12 +1,40 @@
+import os
 import torch
 import numpy as np
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import structural_similarity as ssim
 from skimage.restoration import denoise_bilateral, richardson_lucy
 import lpips
+from torch.utils.data import DataLoader
 
 from dataset import ImageDataset
 from model import ImageRestorationCNN
+
+
+def write_results(result_csv, psnr_values, ssim_values, lpips_values):
+    average_psnr = float(np.mean(psnr_values))
+    average_ssim = float(np.mean(ssim_values))
+    average_lpips = float(np.mean(lpips_values))
+    os.makedirs(os.path.dirname(result_csv), exist_ok=True)
+
+    with open(result_csv, 'w') as f:
+        f.write('sample,psnr,ssim,lpips\n')
+        f.write(f"average,{average_psnr:.4f},{average_ssim:.4f},{average_lpips:.4f}\n")
+        for sample_index, (psnr_val, ssim_val, lpips_val) in enumerate(zip(psnr_values, ssim_values, lpips_values), start=1):
+            f.write(f"{sample_index},{psnr_val:.4f},{ssim_val:.4f},{lpips_val:.4f}\n")
+
+    return average_psnr, average_ssim, average_lpips
+
+
+def build_dataloader(input_paths, target_paths, data_offset=0, data_size=50, batch_size=1):
+    dataset = ImageDataset(
+        input_paths=input_paths,
+        target_paths=target_paths,
+        data_offset=data_offset,
+        data_size=data_size,
+    )
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
 
 def evaluate(dataloader, model_path, result_csv='result.csv'):
     print('=' * 50)
@@ -51,18 +79,18 @@ def evaluate(dataloader, model_path, result_csv='result.csv'):
             for j in range(lpips_batch.shape[0]):
                 lpips_values.append(lpips_batch[j].item())
     
-    print(f"Average PSNR: {np.mean(psnr_values):.4f}")
-    print(f"Average SSIM: {np.mean(ssim_values):.4f}")
-    print(f"Average LPIPS: {np.mean(lpips_values):.4f}")
+    average_psnr, average_ssim, average_lpips = write_results(result_csv, psnr_values, ssim_values, lpips_values)
+
+    print(f"Average PSNR: {average_psnr:.4f}")
+    print(f"Average SSIM: {average_ssim:.4f}")
+    print(f"Average LPIPS: {average_lpips:.4f}")
     print('=' * 50)
 
-    with open(result_csv, 'w') as f:
-        f.write('PSNR, SSIM, LPIPS\n')
-        f.write(f"Average PSNR: {np.mean(psnr_values):.4f}\n")
-        f.write(f"Average SSIM: {np.mean(ssim_values):.4f}\n")
-        f.write(f"Average LPIPS: {np.mean(lpips_values):.4f}\n")
-        for psnr_val, ssim_val, lpips_val in zip(psnr_values, ssim_values, lpips_values):
-            f.write(f"{psnr_val:.4f}, {ssim_val:.4f}, {lpips_val:.4f}\n")
+    return {
+        'psnr': average_psnr,
+        'ssim': average_ssim,
+        'lpips': average_lpips,
+    }
 
 def evaluate_external_method(dataloader, restoration_method, result_csv='external_method_results.csv'):
     print('=' * 50)
@@ -106,41 +134,37 @@ def evaluate_external_method(dataloader, restoration_method, result_csv='externa
             lpips_value = lpips_loss_fn(restored_lpips.float(), targets_lpips.float()).item()
             lpips_values.append(lpips_value)
 
-    print(f"Average PSNR: {np.mean(psnr_values):.4f}")
-    print(f"Average SSIM: {np.mean(ssim_values):.4f}")
-    print(f"Average LPIPS: {np.mean(lpips_values):.4f}")
+    average_psnr, average_ssim, average_lpips = write_results(result_csv, psnr_values, ssim_values, lpips_values)
+
+    print(f"Average PSNR: {average_psnr:.4f}")
+    print(f"Average SSIM: {average_ssim:.4f}")
+    print(f"Average LPIPS: {average_lpips:.4f}")
     print('=' * 50)
 
-    with open(result_csv, 'w') as f:
-        f.write('PSNR, SSIM, LPIPS\n')
-        f.write(f"Average PSNR: {np.mean(psnr_values):.4f}\n")
-        f.write(f"Average SSIM: {np.mean(ssim_values):.4f}\n")
-        f.write(f"Average LPIPS: {np.mean(lpips_values):.4f}\n")
-        for psnr_val, ssim_val, lpips_val in zip(psnr_values, ssim_values, lpips_values):
-            f.write(f"{psnr_val:.4f}, {ssim_val:.4f}, {lpips_val:.4f}\n")
+    return {
+        'psnr': average_psnr,
+        'ssim': average_ssim,
+        'lpips': average_lpips,
+    }
 
 
 if __name__ == "__main__":
     print('Evaluating denoising, with sigma=0.01')
-    dataset = ImageDataset(input_paths='../data/validation/noisy_001', target_paths='../data/validation/clean', data_offset=0, data_size=50)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    evaluate(dataloader, '../models/denoising_001_model.pth', result_csv='../results/denoising_001_results.csv')
-    evaluate_external_method(dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_001_results.csv')
-    
+    denoising_001_dataloader = build_dataloader('../data/validation/noisy_001', '../data/validation/clean')
+    evaluate(denoising_001_dataloader, '../models/denoising_001_model.pth', result_csv='../results/denoising_001_results.csv')
+    evaluate_external_method(denoising_001_dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_001_results.csv')
+
     print('Evaluating denoising, with sigma=0.03')
-    dataset = ImageDataset(input_paths='../data/validation/noisy_003', target_paths='../data/validation/clean', data_offset=0, data_size=50)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    evaluate(dataloader, '../models/denoising_003_model.pth', result_csv='../results/denoising_003_results.csv')
-    evaluate_external_method(dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_003_results.csv')
-    
+    denoising_003_dataloader = build_dataloader('../data/validation/noisy_003', '../data/validation/clean')
+    evaluate(denoising_003_dataloader, '../models/denoising_003_model.pth', result_csv='../results/denoising_003_results.csv')
+    evaluate_external_method(denoising_003_dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_003_results.csv')
+
     print('Evaluating deblurring, with kernel size 3')
-    dataset = ImageDataset(input_paths='../data/validation/blurred_3', target_paths='../data/validation/clean', data_offset=0, data_size=50)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    evaluate(dataloader, '../models/deblurring_3_model.pth', result_csv='../results/deblurring_3_results.csv')
-    evaluate_external_method(dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_3_results.csv')
+    deblurring_3_dataloader = build_dataloader('../data/validation/blurred_3', '../data/validation/clean')
+    evaluate(deblurring_3_dataloader, '../models/deblurring_3_model.pth', result_csv='../results/deblurring_3_results.csv')
+    evaluate_external_method(deblurring_3_dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_3_results.csv')
 
     print('Evaluating deblurring, with kernel size 5')
-    dataset = ImageDataset(input_paths='../data/validation/blurred_5', target_paths='../data/validation/clean', data_offset=0, data_size=50)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    evaluate(dataloader, '../models/deblurring_5_model.pth', result_csv='../results/deblurring_5_results.csv')
-    evaluate_external_method(dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_5_results.csv')
+    deblurring_5_dataloader = build_dataloader('../data/validation/blurred_5', '../data/validation/clean')
+    evaluate(deblurring_5_dataloader, '../models/deblurring_5_model.pth', result_csv='../results/deblurring_5_results.csv')
+    evaluate_external_method(deblurring_5_dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_5_results.csv')

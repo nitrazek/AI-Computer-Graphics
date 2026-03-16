@@ -12,8 +12,11 @@ def get_image_paths(folder):
     return image_paths
 
 def random_crop(image, crop_size=256):
-    x = np.random.randint(0, image.shape[0] - crop_size)
-    y = np.random.randint(0, image.shape[1] - crop_size)
+    if image.shape[0] < crop_size or image.shape[1] < crop_size:
+        raise ValueError('Crop size must be smaller than image dimensions.')
+
+    x = np.random.randint(0, image.shape[0] - crop_size + 1)
+    y = np.random.randint(0, image.shape[1] - crop_size + 1)
     return image[x : x + crop_size, y : y + crop_size]
 
 def add_gaussian_noise(image, sigma):
