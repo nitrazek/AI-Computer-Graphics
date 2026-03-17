@@ -48,11 +48,14 @@ def evaluate(dataloader, model_path, result_csv='result.csv'):
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
 
+    print("Initializing LPIPS...")
     lpips_loss_fn = lpips.LPIPS(net='alex').to(device)
+    print("LPIPS initialized.")
     psnr_values, ssim_values, lpips_values = [], [], []
 
     with torch.no_grad():
-        for inputs, targets in dataloader:
+        total_batches = len(dataloader)
+        for batch_index, (inputs, targets) in enumerate(dataloader, start=1):
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
 
@@ -78,6 +81,9 @@ def evaluate(dataloader, model_path, result_csv='result.csv'):
             # Extract individual values from the batch
             for j in range(lpips_batch.shape[0]):
                 lpips_values.append(lpips_batch[j].item())
+
+            if batch_index % 5 == 0 or batch_index == total_batches:
+                print(f"Progress: {batch_index}/{total_batches} batches ({(100.0 * batch_index / total_batches):.1f}%)")
     
     average_psnr, average_ssim, average_lpips = write_results(result_csv, psnr_values, ssim_values, lpips_values)
 
@@ -92,48 +98,37 @@ def evaluate(dataloader, model_path, result_csv='result.csv'):
         'lpips': average_lpips,
     }
 
-def evaluate_external_method(dataloader, restoration_method, result_csv='external_method_results.csv'):
+def evaluate_denoising_bilateral(dataloader, sigma_color=0.05, sigma_spatial=15, result_csv='bilateral_denoising_results.csv'):
     print('=' * 50)
-    print(f"Evaluating external method: {restoration_method}")
+    print(f"Evaluating bilateral denoising")
     print(f"Size of test set: {len(dataloader.dataset)}")
     print(f"Saving results to: {result_csv}")
     
     psnr_values, ssim_values, lpips_values = [], [], []
+    print("Initializing LPIPS...")
     lpips_loss_fn = lpips.LPIPS(net='alex')
+    print("LPIPS initialized.")
 
-    # Small normalized blur kernel used for Richardson-Lucy deblurring.
-    psf = np.ones((5, 5), dtype=np.float32)
-    psf /= psf.sum()
-
-    for inputs, targets in dataloader:
+    total_batches = len(dataloader)
+    for batch_index, (inputs, targets) in enumerate(dataloader, start=1):
         inputs_np = inputs.cpu().numpy().transpose(0, 2, 3, 1)  # (B, C, H, W) -> (B, H, W, C)
         targets_np = targets.cpu().numpy().transpose(0, 2, 3, 1)  # (B, C, H, W) -> (B, H, W, C)
 
         for i in range(inputs_np.shape[0]):
-            restored = None
-            if restoration_method == 'bilateral_denoising':
-                restored = denoise_bilateral(inputs_np[i], channel_axis=-1)
-            elif restoration_method == 'richardson_lucy_deblurring':
-                # richardson_lucy expects image and PSF dimensionality to match.
-                # For RGB images, apply RL independently per channel with a 2D PSF.
-                restored = np.stack(
-                    [
-                        richardson_lucy(inputs_np[i, :, :, c], psf, num_iter=10)
-                        for c in range(inputs_np[i].shape[2])
-                    ],
-                    axis=-1,
-                )
-
+            restored = denoise_bilateral(inputs_np[i], sigma_color=sigma_color, sigma_spatial=sigma_spatial, channel_axis=-1)
             restored = np.clip(restored, 0.0, 1.0)
             
             psnr_values.append(psnr(targets_np[i], restored, data_range=1.0))
-            ssim_values.append(ssim(targets_np[i], restored, channel_axis=2, data_range=1.0))
+            ssim_values.append(ssim(targets_np[i], restored, channel_axis=2, data_range=1.0, win_size=5))
             
             restored_lpips = torch.from_numpy(restored.transpose(2, 0, 1)).unsqueeze(0) * 2 - 1  # [0, 1] -> [-1, 1]
             targets_lpips = torch.from_numpy(targets_np[i].transpose(2, 0, 1)).unsqueeze(0) * 2 - 1  # [0, 1] -> [-1, 1]
             lpips_value = lpips_loss_fn(restored_lpips.float(), targets_lpips.float()).item()
             lpips_values.append(lpips_value)
 
+        if batch_index % 5 == 0 or batch_index == total_batches:
+            print(f"Progress: {batch_index}/{total_batches} images ({(100.0 * batch_index / total_batches):.1f}%)")
+
     average_psnr, average_ssim, average_lpips = write_results(result_csv, psnr_values, ssim_values, lpips_values)
 
     print(f"Average PSNR: {average_psnr:.4f}")
@@ -147,24 +142,67 @@ def evaluate_external_method(dataloader, restoration_method, result_csv='externa
         'lpips': average_lpips,
     }
 
+def evaluate_richardson_lucy(dataloader, psf, iterations=15, result_csv='richardson_lucy_deblurring_results.csv'):
+    print('=' * 50)
+    print(f"Evaluating Richardson-Lucy deblurring")
+    print(f"Size of test set: {len(dataloader.dataset)}")
+    print(f"Saving results to: {result_csv}")
+    
+    psnr_values, ssim_values, lpips_values = [], [], []
+    print("Initializing LPIPS...")
+    lpips_loss_fn = lpips.LPIPS(net='alex')
+    print("LPIPS initialized.")
+
+    total_batches = len(dataloader)
+    for batch_index, (inputs, targets) in enumerate(dataloader, start=1):
+        inputs_np = inputs.cpu().numpy().transpose(0, 2, 3, 1)  # (B, C, H, W) -> (B, H, W, C)
+        targets_np = targets.cpu().numpy().transpose(0, 2, 3, 1)  # (B, C, H, W) -> (B, H, W, C)
+
+        for i in range(inputs_np.shape[0]):
+            # skimage.richardson_lucy expects image and PSF to have matching dimensionality.
+            # For RGB images and a 2D PSF, deconvolve each channel separately.
+            restored = np.stack([
+                richardson_lucy(inputs_np[i][..., c], psf=psf, num_iter=iterations)
+                for c in range(inputs_np[i].shape[2])
+            ], axis=2)
+            restored = np.clip(restored, 0.0, 1.0)
+            
+            psnr_values.append(psnr(targets_np[i], restored, data_range=1.0))
+            ssim_values.append(ssim(targets_np[i], restored, channel_axis=2, data_range=1.0, win_size=5))
+            
+            restored_lpips = torch.from_numpy(restored.transpose(2, 0, 1)).unsqueeze(0) * 2 - 1  # [0, 1] -> [-1, 1]
+            targets_lpips = torch.from_numpy(targets_np[i].transpose(2, 0, 1)).unsqueeze(0) * 2 - 1  # [0, 1] -> [-1, 1]
+            lpips_value = lpips_loss_fn(restored_lpips.float(), targets_lpips.float()).item()
+            lpips_values.append(lpips_value)
+
+        if batch_index % 5 == 0 or batch_index == total_batches:
+            print(f"Progress: {batch_index}/{total_batches} images ({(100.0 * batch_index / total_batches):.1f}%)")
+
+    average_psnr, average_ssim, average_lpips = write_results(result_csv, psnr_values, ssim_values, lpips_values)
+
+    print(f"Average PSNR: {average_psnr:.4f}")
+    print(f"Average SSIM: {average_ssim:.4f}")
+    print(f"Average LPIPS: {average_lpips:.4f}")
+    print('=' * 50)
+
 
 if __name__ == "__main__":
     print('Evaluating denoising, with sigma=0.01')
-    denoising_001_dataloader = build_dataloader('../data/validation/noisy_001', '../data/validation/clean')
+    denoising_001_dataloader = build_dataloader('../data/validation/noisy_001', '../data/validation/clean', data_offset=100, data_size=50)
     evaluate(denoising_001_dataloader, '../models/denoising_001_model.pth', result_csv='../results/denoising_001_results.csv')
-    evaluate_external_method(denoising_001_dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_001_results.csv')
+    evaluate_denoising_bilateral(denoising_001_dataloader, sigma_color=0.025, sigma_spatial=10, result_csv='../results/bilateral_denoising_001_results.csv')
 
     print('Evaluating denoising, with sigma=0.03')
-    denoising_003_dataloader = build_dataloader('../data/validation/noisy_003', '../data/validation/clean')
+    denoising_003_dataloader = build_dataloader('../data/validation/noisy_003', '../data/validation/clean', data_offset=100, data_size=50)
     evaluate(denoising_003_dataloader, '../models/denoising_003_model.pth', result_csv='../results/denoising_003_results.csv')
-    evaluate_external_method(denoising_003_dataloader, 'bilateral_denoising', result_csv='../results/bilateral_denoising_003_results.csv')
+    evaluate_denoising_bilateral(denoising_003_dataloader, sigma_color=0.075, sigma_spatial=10, result_csv='../results/bilateral_denoising_003_results.csv')
 
     print('Evaluating deblurring, with kernel size 3')
-    deblurring_3_dataloader = build_dataloader('../data/validation/blurred_3', '../data/validation/clean')
+    deblurring_3_dataloader = build_dataloader('../data/validation/blurred_3', '../data/validation/clean', data_offset=100, data_size=50)
     evaluate(deblurring_3_dataloader, '../models/deblurring_3_model.pth', result_csv='../results/deblurring_3_results.csv')
-    evaluate_external_method(deblurring_3_dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_3_results.csv')
+    evaluate_richardson_lucy(deblurring_3_dataloader, psf=np.ones((3, 3)) / 9, iterations=10, result_csv='../results/richardson_lucy_deblurring_3_results.csv')
 
     print('Evaluating deblurring, with kernel size 5')
-    deblurring_5_dataloader = build_dataloader('../data/validation/blurred_5', '../data/validation/clean')
+    deblurring_5_dataloader = build_dataloader('../data/validation/blurred_5', '../data/validation/clean', data_offset=100, data_size=50)
     evaluate(deblurring_5_dataloader, '../models/deblurring_5_model.pth', result_csv='../results/deblurring_5_results.csv')
-    evaluate_external_method(deblurring_5_dataloader, 'richardson_lucy_deblurring', result_csv='../results/richardson_lucy_deblurring_5_results.csv')
+    evaluate_richardson_lucy(deblurring_5_dataloader, psf=np.ones((5, 5)) / 25, iterations=10, result_csv='../results/richardson_lucy_deblurring_5_results.csv')

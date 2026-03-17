@@ -25,3 +25,9 @@ mkdir results
 cd src
 python evaluate.py
 ```
+7. Visualize the image results with
+```bash
+mkdir visualizations
+cd src
+python visualize.py
+```
