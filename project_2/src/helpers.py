@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 from numpy import ndarray
-import matplotlib.pyplot as plt
 from PIL import Image
 from PIL.ExifTags import TAGS
 
@@ -73,6 +72,8 @@ LDR_PATH = "../data/images/Bracketed_images/C40/DSC03927.JPG_crop.jpg"
 HDR_PATH = "../data/images/HDR/C40_HDR.hdr"
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
     # read LDR image and show metadata
     metadata = get_exif(LDR_PATH)
     print(f"Exposure Time: {metadata.get('ExposureTime')}")
