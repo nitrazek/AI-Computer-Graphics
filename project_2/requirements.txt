@@ -2,7 +2,9 @@
 --extra-index-url https://pypi.org/simple
 
 torch
+torchvision
 opencv-python
 scikit-image
 lpips
 numpy
+matplotlib
