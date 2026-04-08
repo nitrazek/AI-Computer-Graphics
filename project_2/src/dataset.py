@@ -3,6 +3,7 @@ import os
 import cv2
 import numpy as np
 import torch
+import math
 from torch.utils.data import Dataset
 
 
@@ -21,13 +22,43 @@ def load_image_rgb01(image_path):
     return torch.from_numpy(image)
 
 
-def random_crop(input_image, underexposed_target, overexposed_target, crop_size):
+def _hash_to_int(value):
+    # FNV-1a 32-bit hash for stable cross-run hashing.
+    hash_value = 2166136261
+    for byte in value.encode('utf-8'):
+        hash_value ^= byte
+        hash_value = (hash_value * 16777619) & 0xffffffff
+    return hash_value
+
+
+def _unique_crop_position(height, width, crop_size, patch_id, seed_text):
+    positions_y = height - crop_size + 1
+    positions_x = width - crop_size + 1
+    total_positions = positions_y * positions_x
+
+    if patch_id >= total_positions:
+        raise ValueError(
+            f'patches_per_image exceeds available unique crops: {patch_id + 1} > {total_positions}'
+        )
+
+    seed = _hash_to_int(seed_text)
+    step = (seed % total_positions) or 1
+    while math.gcd(step, total_positions) != 1:
+        step += 1
+
+    offset = (seed // 9973) % total_positions
+    flat_index = (offset + patch_id * step) % total_positions
+    top = flat_index // positions_x
+    left = flat_index % positions_x
+    return top, left
+
+
+def random_crop(input_image, underexposed_target, overexposed_target, crop_size, patch_id=0, seed_text=''):
     _, height, width = input_image.shape
     if height < crop_size or width < crop_size:
         raise ValueError('Crop size must be smaller than image dimensions.')
 
-    top = np.random.randint(0, height - crop_size + 1)
-    left = np.random.randint(0, width - crop_size + 1)
+    top, left = _unique_crop_position(height, width, crop_size, patch_id, seed_text)
     bottom = top + crop_size
     right = left + crop_size
 
@@ -64,17 +95,22 @@ class ExposureDataset(Dataset):
         return len(self.samples) * self.patches_per_image
 
     def __getitem__(self, key):
-        sample = self.samples[key % len(self.samples)]
+        sample_index = key % len(self.samples)
+        patch_id = key // len(self.samples)
+        sample = self.samples[sample_index]
         input_image = load_image_rgb01(sample['input_path'])
         underexposed_target = load_image_rgb01(sample['underexposed_path'])
         overexposed_target = load_image_rgb01(sample['overexposed_path'])
 
         if self.crop_size is not None:
+            seed_text = f"{sample['scene_name']}::{self.crop_size}"
             input_image, underexposed_target, overexposed_target = random_crop(
                 input_image,
                 underexposed_target,
                 overexposed_target,
                 self.crop_size,
+                patch_id=patch_id,
+                seed_text=seed_text,
             )
 
         metadata = {
