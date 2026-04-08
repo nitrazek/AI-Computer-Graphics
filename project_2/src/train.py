@@ -33,7 +33,7 @@ def train_model(
     crop_size=256,
     patches_per_image=8,
     validation_patches_per_image=4,
-    n_epoch=50,
+    n_epoch=25,
     batch_size=4,
     lr=0.001,
     save_path='../models/exposure_synthesis_model.pth',

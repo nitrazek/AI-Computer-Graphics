@@ -8,7 +8,7 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 from torch.utils.data import DataLoader
 
 from dataset import ExposureDataset
-from helpers import read_hdr, measure_ev_range
+from helpers import read_hdr, measure_ev_range, tone_map_reinhard
 from model import ExposureSynthesisCNN
 
 
@@ -26,10 +26,9 @@ def save_rgb01(image_path, image_rgb01):
     cv2.imwrite(image_path, rgb01_to_bgr_uint8(image_rgb01))
 
 
-def save_hdr(image_path, hdr_rgb):
-    os.makedirs(os.path.dirname(image_path), exist_ok=True)
-    hdr_bgr = cv2.cvtColor(hdr_rgb.astype(np.float32), cv2.COLOR_RGB2BGR)
-    cv2.imwrite(image_path, hdr_bgr)
+def save_hdr_preview(image_path, hdr_rgb):
+    tonemapped_image = np.clip(tone_map_reinhard(hdr_rgb), 0.0, 1.0)
+    save_rgb01(image_path, tonemapped_image)
 
 
 def get_tile_positions(length, tile_size, overlap):
@@ -204,8 +203,8 @@ def evaluate(dataloader, model_path, exposure_result_csv='../results/exposure_re
                     ],
                 )
 
-                hdr_path = os.path.join(hdr_root, f'{scene_name}_generated.hdr')
-                save_hdr(hdr_path, hdr_image)
+                hdr_path = os.path.join(hdr_root, f'{scene_name}_generated.png')
+                save_hdr_preview(hdr_path, hdr_image)
 
                 original_hdr_path = os.path.join('../data/images/HDR', f'{scene_name}_HDR.hdr')
                 original_hdr = read_hdr(original_hdr_path)
