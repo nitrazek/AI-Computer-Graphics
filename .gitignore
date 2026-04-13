@@ -1,5 +1,5 @@
 .venv/
 *.pth
-*.csv
 __pycache__/
 data/
+*.zip

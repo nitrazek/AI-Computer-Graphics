@@ -1,0 +1,7 @@
+scene_name,target,psnr,lpips
+C40,underexposed,22.4661,0.2582
+C40,overexposed,16.6937,0.5238
+C41,underexposed,16.7821,0.4772
+C41,overexposed,16.9451,0.5104
+C43,underexposed,17.5998,0.5097
+C43,overexposed,14.2373,0.6253
