@@ -129,7 +129,7 @@ def evaluate(dataloader, model_path, exposure_result_csv='../results/exposure_re
     model.eval()
 
     generated_root = '../results/generated'
-    hdr_root = '../results/hdr'
+    hdr_root = '../results/generated/hdr'
     lpips_loss_fn = lpips.LPIPS(net='alex').to(device)
 
     under_psnr_values = []

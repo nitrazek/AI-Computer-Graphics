@@ -1,3 +1,9 @@
+# For images without metadata, we will estimate the EV based on the image brightness and sort the images by brightness to select the reference, underexposed, and overexposed images.
+# Reference image = image at PR=0.5
+# Underexposed image = image at PR=0
+# Overexposed image = image at PR=0.875
+# PR values above is calculated by ev_analysis.py.
+
 import csv
 import os
 import cv2
@@ -11,6 +17,10 @@ TEST_SCENES = [f'C{i:02d}' for i in range(40, 47)]
 LDR_FOLDER = '../data/images/LDR'
 BRACKETED_IMAGES_FOLDER = '../data/images/Bracketed_images'
 OUTPUT_FOLDER = '../data'
+
+REFERENCE_PR = 0.5
+UNDEREXPOSED_PR = 0.0
+OVEREXPOSED_PR = 0.875
 
 
 def get_scene_names(folder):
@@ -76,6 +86,76 @@ def load_image(image_path):
     return image
 
 
+def brightness_score(image_path):
+    image = load_image(image_path)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return float(np.percentile(gray, 60))
+
+
+def pr_to_index(pr_value, num_images):
+    if num_images <= 1:
+        return 0
+    return int(round(pr_value * (num_images - 1)))
+
+
+def fallback_select_by_pr(bracketed_image_paths):
+    if len(bracketed_image_paths) < 3:
+        raise ValueError('Not enough bracketed images to select fallback targets.')
+
+    brightness_rows = []
+    for path in bracketed_image_paths:
+        brightness_rows.append({
+            'path': path,
+            'brightness': brightness_score(path),
+        })
+
+    # Dark -> bright ordering, consistent with PR analysis.
+    brightness_rows.sort(key=lambda row: row['brightness'])
+    num_images = len(brightness_rows)
+
+    reference_index = pr_to_index(REFERENCE_PR, num_images)
+    under_index = pr_to_index(UNDEREXPOSED_PR, num_images)
+    over_index = pr_to_index(OVEREXPOSED_PR, num_images)
+
+    chosen = {reference_index}
+    if under_index in chosen:
+        for candidate in range(num_images):
+            if candidate not in chosen:
+                under_index = candidate
+                break
+    chosen.add(under_index)
+    if over_index in chosen:
+        for candidate in range(num_images - 1, -1, -1):
+            if candidate not in chosen:
+                over_index = candidate
+                break
+
+    reference_path = brightness_rows[reference_index]['path']
+    under_path = brightness_rows[under_index]['path']
+    over_path = brightness_rows[over_index]['path']
+
+    reference_exposure_time = 1.0 / 60.0
+    under_exposure_time = reference_exposure_time * (2.0 ** (-TARGET_EV_OFFSET))
+    over_exposure_time = reference_exposure_time * (2.0 ** TARGET_EV_OFFSET)
+
+    reference_image = {
+        'path': reference_path,
+        'exposure_time': float(reference_exposure_time),
+        'ev': 0.0,
+    }
+    underexposed_image = {
+        'path': under_path,
+        'exposure_time': float(under_exposure_time),
+        'ev': TARGET_EV_OFFSET,
+    }
+    overexposed_image = {
+        'path': over_path,
+        'exposure_time': float(over_exposure_time),
+        'ev': -TARGET_EV_OFFSET,
+    }
+    return reference_image, underexposed_image, overexposed_image
+
+
 def resize_image(image, target_shape):
     target_height, target_width = target_shape[:2]
     if image.shape[0] == target_height and image.shape[1] == target_width:
@@ -130,32 +210,34 @@ def prepare_scene(scene_name, output_dirs):
         except ValueError:
             continue
 
-    if len(bracketed_image_data) < 3:
-        raise ValueError('Not enough bracketed images with exposure metadata.')
+    if len(bracketed_image_data) >= 3:
+        bracketed_image_data.sort(key=lambda image: image['ev'])
 
-    bracketed_image_data.sort(key=lambda image: image['ev'])
+        reference_image = bracketed_image_data[len(bracketed_image_data) // 2]
+        under_target_ev = reference_image['ev'] + TARGET_EV_OFFSET
+        over_target_ev = reference_image['ev'] - TARGET_EV_OFFSET
 
-    reference_image = bracketed_image_data[len(bracketed_image_data) // 2]
-    under_target_ev = reference_image['ev'] + TARGET_EV_OFFSET
-    over_target_ev = reference_image['ev'] - TARGET_EV_OFFSET
-
-    underexposed_image = select_nearest_image(
-        bracketed_image_data,
-        under_target_ev,
-        excluded_paths={reference_image['path']}
-    )
-    overexposed_image = select_nearest_image(
-        bracketed_image_data,
-        over_target_ev,
-        excluded_paths={reference_image['path']}
-    )
-
-    if overexposed_image['path'] == underexposed_image['path']:
+        underexposed_image = select_nearest_image(
+            bracketed_image_data,
+            under_target_ev,
+            excluded_paths={reference_image['path']}
+        )
         overexposed_image = select_nearest_image(
             bracketed_image_data,
             over_target_ev,
-            excluded_paths={reference_image['path'], underexposed_image['path']}
+            excluded_paths={reference_image['path']}
         )
+
+        if overexposed_image['path'] == underexposed_image['path']:
+            overexposed_image = select_nearest_image(
+                bracketed_image_data,
+                over_target_ev,
+                excluded_paths={reference_image['path'], underexposed_image['path']}
+            )
+    else:
+        reference_image, underexposed_image, overexposed_image = fallback_select_by_pr(bracketed_image_paths)
+        under_target_ev = TARGET_EV_OFFSET
+        over_target_ev = -TARGET_EV_OFFSET
 
     ldr_image = load_image(ldr_image_path)
     underexposed_target = resize_image(load_image(underexposed_image['path']), ldr_image.shape)
