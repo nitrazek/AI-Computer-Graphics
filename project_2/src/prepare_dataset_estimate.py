@@ -54,7 +54,44 @@ def get_bracket_metadata(image_path):
         'exposure_time': exposure_time,
         'f_number': f_number,
         'ev': float(exposure_value),
+        'metadata_source': 'exif',
     }
+
+
+def estimate_bracket_metadata(image_paths):
+    brightness_rows = []
+    for image_path in image_paths:
+        image = load_image(image_path)
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Percentile brightness is more robust than mean for clipped highlights/shadows.
+        brightness_rows.append({
+            'path': image_path,
+            'brightness': float(np.percentile(gray_image, 60)),
+        })
+
+    # Brighter image -> lower EV, darker image -> higher EV.
+    # Sort the images by luminance.
+    brightness_rows.sort(key=lambda row: row['brightness'], reverse=True)
+    middle_index = len(brightness_rows) // 2
+    base_exposure_time = 1.0 / 60.0
+    # Suppose that f_number is constant for all bracketed images.
+    estimated_f_number = 4.0
+
+    estimated_rows = []
+    for index, row in enumerate(brightness_rows):
+        # Suppose that the middle image has the reference EV.
+        estimated_ev = float(index - middle_index)
+        # Suppose that the exposure time scales with the EV by a power of 2.
+        estimated_exposure_time = float(base_exposure_time * (2.0 ** (-estimated_ev)))
+        estimated_rows.append({
+            'path': row['path'],
+            'exposure_time': estimated_exposure_time,
+            'f_number': estimated_f_number,
+            'ev': estimated_ev,
+            'metadata_source': 'estimated',
+        })
+
+    return estimated_rows
 
 
 def select_nearest_image(image_data, target_ev, excluded_paths=None):
@@ -123,15 +160,21 @@ def prepare_scene(scene_name, output_dirs):
         raise ValueError(f'Missing bracketed images folder: {bracketed_folder}')
 
     bracketed_image_paths = get_image_paths(bracketed_folder, image_format='.jpg')
-    bracketed_image_data = []
+    exif_image_data = []
     for image_path in bracketed_image_paths:
         try:
-            bracketed_image_data.append(get_bracket_metadata(image_path))
+            exif_image_data.append(get_bracket_metadata(image_path))
         except ValueError:
             continue
 
-    if len(bracketed_image_data) < 3:
-        raise ValueError('Not enough bracketed images with exposure metadata.')
+    if len(exif_image_data) >= 3:
+        bracketed_image_data = exif_image_data
+        metadata_source = 'exif'
+    elif len(bracketed_image_paths) >= 3:
+        bracketed_image_data = estimate_bracket_metadata(bracketed_image_paths)
+        metadata_source = 'estimated'
+    else:
+        raise ValueError('Not enough bracketed images to estimate exposure metadata.')
 
     bracketed_image_data.sort(key=lambda image: image['ev'])
 
@@ -174,6 +217,7 @@ def prepare_scene(scene_name, output_dirs):
     return {
         'scene_name': scene_name,
         'split': split_name,
+        'metadata_source': metadata_source,
         'ldr_path': os.path.relpath(ldr_output_path, OUTPUT_FOLDER),
         'underexposed_path': os.path.relpath(under_output_path, OUTPUT_FOLDER),
         'overexposed_path': os.path.relpath(over_output_path, OUTPUT_FOLDER),
@@ -195,6 +239,7 @@ def write_metadata(metadata_rows, output_dirs):
     field_names = [
         'scene_name',
         'split',
+        'metadata_source',
         'ldr_path',
         'underexposed_path',
         'overexposed_path',
