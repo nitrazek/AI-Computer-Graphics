@@ -1,17 +1,42 @@
-import os
 import torch
-import json
 import numpy as np
+import os
+import re
 from torch.utils.data import DataLoader
 from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import hausdorff_distance
 from skimage.morphology import remove_small_objects
 import lpips
 from flip_loss import LDRFLIPLoss
+import csv
 
 # Import your classes
 from dataset import PhongDataset
 from model import PhongGenerator
+
+
+def get_latest_generator_checkpoint(checkpoints_dir="../checkpoints"):
+    pattern = re.compile(r"^generator_(\d+)\.pth$")
+    latest_mtime = -1.0
+    latest_path = None
+    for name in os.listdir(checkpoints_dir):
+        if name == "generator_latest.pth":
+            full_path = os.path.join(checkpoints_dir, name)
+            mtime = os.path.getmtime(full_path)
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_path = full_path
+            continue
+        match = pattern.match(name)
+        if match:
+            full_path = os.path.join(checkpoints_dir, name)
+            mtime = os.path.getmtime(full_path)
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_path = full_path
+    if latest_path is None:
+        raise FileNotFoundError(f"No generator checkpoint found in {checkpoints_dir}")
+    return latest_path
 
 def calculate_metrics():
     print("Starting Evaluation Phase...")
@@ -23,7 +48,8 @@ def calculate_metrics():
     latent_dim = 100
     generator = PhongGenerator(condition_dim, latent_dim).to(device)
     
-    model_path = "../checkpoints/generator_50.pth" 
+    model_path = get_latest_generator_checkpoint("../checkpoints")
+    print(f"Using checkpoint: {model_path}")
     generator.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     generator.eval() # Set to evaluation mode (turns off batchnorm/dropout)
 
@@ -47,7 +73,7 @@ def calculate_metrics():
             real_img = real_img.to(device)
             
             # Generate the fake image
-            noise = torch.randn(1, latent_dim, device=device)
+            noise = torch.zeros(1, latent_dim, device=device)
             fake_img = generator(noise, condition)
             
             # 3. Format images for the SSIM and Hausdorff calculations
@@ -82,17 +108,17 @@ def calculate_metrics():
                 current_hausdorff = hausdorff_distance(real_binary, fake_binary)
                 hausdorff_scores.append(current_hausdorff)
 
-            # Print progress
-
     # 4. Print Final Report
-    print("\n" + "="*40)
-    print("Average FLIP:      {:.4f} (Lower is better, Min 0.0)".format(np.mean(flip_scores)))
-    print("Average LPIPS:     {:.4f} (Lower is better, Min 0.0)".format(np.mean(lpips_scores)))
-    # SSIM ranges from -1.0 to 1.0 (1.0 is a perfect identical match)
-    print(f"Average SSIM:      {np.mean(ssim_scores):.4f} (Higher is better, Max 1.0)")
-    # Hausdorff is a physical pixel distance (0.0 means the shapes perfectly overlap)
-    print(f"Average Hausdorff: {np.mean(hausdorff_scores):.4f} (Lower is better, Min 0.0)")
-    print("="*40)
+    csv_path = "../results/evaluation_metrics.csv"
+    with open(csv_path, mode='w', newline='') as csv_file:
+        fieldnames = ['Metric', 'Average Score', 'Better Score']
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow({'Metric': 'FLIP', 'Average Score': f"{np.mean(flip_scores):.4f}", 'Better Score': 'Lower is better, Min 0.0'})
+        writer.writerow({'Metric': 'LPIPS', 'Average Score': f"{np.mean(lpips_scores):.4f}", 'Better Score': 'Lower is better, Min 0.0'})
+        writer.writerow({'Metric': 'SSIM', 'Average Score': f"{np.mean(ssim_scores):.4f}", 'Better Score': 'Higher is better, Max 1.0'})
+        if hausdorff_scores:
+            writer.writerow({'Metric': 'Hausdorff Distance', 'Average Score': f"{np.mean(hausdorff_scores):.4f}", 'Better Score': 'Lower is better, Min 0.0'})
 
 if __name__ == '__main__':
     calculate_metrics()

@@ -1,0 +1,5 @@
+Metric,Average Score,Better Score
+FLIP,0.0112,"Lower is better, Min 0.0"
+LPIPS,0.1185,"Lower is better, Min 0.0"
+SSIM,0.9701,"Higher is better, Max 1.0"
+Hausdorff Distance,7.3847,"Lower is better, Min 0.0"

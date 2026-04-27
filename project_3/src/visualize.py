@@ -1,11 +1,36 @@
 import torch
 import os
+import re
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
 # Import your classes
 from dataset import PhongDataset
 from model import PhongGenerator
+
+
+def get_latest_generator_checkpoint(checkpoints_dir="../checkpoints"):
+    pattern = re.compile(r"^generator_(\d+)\.pth$")
+    latest_mtime = -1.0
+    latest_path = None
+    for name in os.listdir(checkpoints_dir):
+        if name == "generator_latest.pth":
+            full_path = os.path.join(checkpoints_dir, name)
+            mtime = os.path.getmtime(full_path)
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_path = full_path
+            continue
+        match = pattern.match(name)
+        if match:
+            full_path = os.path.join(checkpoints_dir, name)
+            mtime = os.path.getmtime(full_path)
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_path = full_path
+    if latest_path is None:
+        raise FileNotFoundError(f"No generator checkpoint found in {checkpoints_dir}")
+    return latest_path
 
 def generate_individual_pairs():
     print("Generating individual comparison pairs...")
@@ -17,7 +42,8 @@ def generate_individual_pairs():
     latent_dim = 100
     generator = PhongGenerator(condition_dim, latent_dim).to(device)
     
-    checkpoint_path = "../checkpoints/generator_50.pth" 
+    checkpoint_path = get_latest_generator_checkpoint("../checkpoints")
+    print(f"Using checkpoint: {checkpoint_path}")
     generator.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
     generator.eval() 
 
@@ -33,7 +59,7 @@ def generate_individual_pairs():
     
     # 3. Generate the Fake Images
     with torch.no_grad():
-        noise = torch.randn(12, latent_dim, device=device)
+        noise = torch.zeros(12, latent_dim, device=device)
         fake_imgs = generator(noise, conditions)
         
     # 4. Format images for saving (Shift from [-1.0, 1.0] back to [0.0, 1.0])
