@@ -11,12 +11,11 @@ from dataset import PhongDataset
 from model import PhongGenerator, PhongDiscriminator
 
 
-def extract_real_mask(real_imgs, threshold=0.01):
+def extract_real_mask(real_imgs, threshold=0.02):
     real_01 = (real_imgs * 0.5) + 0.5
     intensity = real_01.max(dim=1, keepdim=True).values
-    mask = (intensity > threshold).float()
-    # Slight dilation covers dim sphere edges that can be near-black.
-    return F.max_pool2d(mask, kernel_size=3, stride=1, padding=1)
+    # Threshold matches the one used by the Hausdorff metric in evaluate.py.
+    return (intensity > threshold).float()
 
 
 def weighted_l1_loss(fake_imgs, real_imgs, fg_threshold=0.02, fg_weight=10.0):
@@ -37,12 +36,12 @@ def train():
 
     # Hyperparameters
     batch_size = 64
-    epochs = 50       
+    epochs = 50
     latent_dim = 100  
     condition_dim = 10 
     lambda_adv = 0.25
     lambda_l1 = 35.0
-    lambda_mask = 8.0
+    lambda_mask = 20.0
     lambda_bg = 30.0
 
     # Load Data
@@ -90,7 +89,7 @@ def train():
             loss_D_real = criterion_adv(outputs_real, real_labels)
 
             noise = torch.zeros(curr_batch_size, latent_dim, device=device)
-            fake_imgs = generator(noise, conditions)
+            fake_imgs, _, fake_mask = generator(noise, conditions, return_aux=True)
 
             outputs_fake = discriminator(fake_imgs.detach(), conditions)
             loss_D_fake = criterion_adv(outputs_fake, fake_labels)
@@ -112,7 +111,6 @@ def train():
             loss_G_L1 = weighted_l1_loss(fake_imgs, real_imgs)
 
             # 3. Force clean object boundaries and suppress background artifacts.
-            _, _, fake_mask = generator(noise, conditions, return_aux=True)
             real_mask = extract_real_mask(real_imgs)
             loss_G_mask = criterion_mask(fake_mask, real_mask)
 
