@@ -1,0 +1,7 @@
+method,iou,dice,chamfer
+bunny flow,0.296579,0.457424,0.001128
+dragon flow,0.244382,0.392707,0.001412
+armadillo flow,0.258797,0.411138,0.001309
+bunny flow asian dragon,0.201059,0.334723,0.006497
+dragon flow asian dragon,0.223196,0.364806,0.003675
+armadillo flow asian dragon,0.242044,0.389516,0.001920
