@@ -7,7 +7,6 @@ from scipy.linalg import sqrtm
 from inference import load_model_and_diffusion, sample_motion
 from skeleton import LABEL_NAMES, LABEL_TO_INDEX
 
-
 PROCESSED_VALIDATION_DIR = os.path.join(
     os.path.dirname(__file__), '..', 'data', 'processed', 'validation'
 )
@@ -39,11 +38,25 @@ def frechet_distance(real, generated):
 
 
 def mpjpe_nearest(real, generated):
-    """Nearest-neighbor MPJPE between generated samples and validation samples."""
-    # pairwise distance over [T, J, C]
-    diff = generated[:, None, :, :, :] - real[None, :, :, :, :]
-    # average over T, J, C gives per-pair MSE^0.5
-    pair_errors = np.sqrt(np.mean(np.square(diff), axis=(2, 3, 4)))
+    """Proper MPJPE with Root-Alignment at frame 0."""
+    # 1. Align pelvis of both real and generated to (0,0,0) at frame 0 to ignore global offset
+    # real shape: [M, 48, 15, 3], generated shape: [N, 48, 15, 3]
+    PELVIS_IDX = 2  # Based on your Joint IntEnum
+    
+    real_aligned = real.copy()
+    real_aligned -= real_aligned[:, :1, PELVIS_IDX:PELVIS_IDX+1, :] 
+    
+    gen_aligned = generated.copy()
+    gen_aligned -= gen_aligned[:, :1, PELVIS_IDX:PELVIS_IDX+1, :] 
+
+    # 2. Pairwise expansion: [N, M, 48, 15, 3]
+    diff = gen_aligned[:, None, :, :, :] - real_aligned[None, :, :, :, :]
+    
+    # 3. Calculate true Euclidean distance per joint: sqrt(dx^2 + dy^2 + dz^2)
+    # Sum over the coordinate axis (4), then mean over frames (2) and joints (3)
+    pair_errors = np.mean(np.sqrt(np.sum(np.square(diff), axis=4)), axis=(2, 3))
+    
+    # 4. Find the closest match in the validation set for each generated sample
     nearest_errors = np.min(pair_errors, axis=1)
     return float(np.mean(nearest_errors))
 
@@ -67,9 +80,15 @@ def evaluate(model_path=None, n_samples_per_label=128):
 
     for motion_name in LABEL_NAMES:
         real_path = os.path.join(PROCESSED_VALIDATION_DIR, f'{motion_name}.npy')
+        
+        # Check if validation data actually exists before loading to prevent crashes
+        if not os.path.exists(real_path):
+            print(f"[skip] Validation data not found for {motion_name}: {real_path}")
+            continue
+            
         real = np.load(real_path).astype(np.float32)
-
         label_index = LABEL_TO_INDEX[motion_name]
+        
         generated = sample_motion(
             model,
             diffusion,
@@ -88,13 +107,16 @@ def evaluate(model_path=None, n_samples_per_label=128):
             flush=True,
         )
 
-    write_results(rows)
-    print(f'Results saved to {RESULTS_PATH}')
+    if rows:
+        write_results(rows)
+        print(f'Results saved to {RESULTS_PATH}')
+    else:
+        print('No results to save. Ensure your validation data is generated properly.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Evaluate motion generation quality.')
-    parser.add_argument('--model-path', type=str, default=None)
+    parser.add_argument('--model-path', type=str, default='../models/motion_diffusion.pth')
     parser.add_argument('--n-samples-per-label', type=int, default=128)
     args = parser.parse_args()
 

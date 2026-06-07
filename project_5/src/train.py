@@ -129,7 +129,7 @@ def train(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train motion diffusion model.')
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=2000)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=2e-4)
     parser.add_argument('--diffusion-steps', type=int, default=1000)

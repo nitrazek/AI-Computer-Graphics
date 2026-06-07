@@ -34,6 +34,27 @@ class MotionDataset(Dataset):
 
         self.samples = np.concatenate(self.samples, axis=0)
         self.labels = np.concatenate(self.labels, axis=0)
+        
+        # --- NEW: Data Normalization ---
+        stats_path = os.path.join(PROCESSED_DIR, 'stats.npz')
+        
+        if self.split == 'training':
+            # Calculate mean and std on the training set and save them
+            self.mean = np.mean(self.samples, axis=(0, 1, 2), keepdims=True)
+            self.std = np.std(self.samples, axis=(0, 1, 2), keepdims=True)
+            self.std = np.clip(self.std, a_min=1e-5, a_max=None) # Prevent zero division
+            np.savez(stats_path, mean=self.mean, std=self.std)
+        else:
+            # Validation set MUST use the training set's statistics
+            if not os.path.exists(stats_path):
+                raise FileNotFoundError("Run training split first to generate stats.npz")
+            stats = np.load(stats_path)
+            self.mean = stats['mean']
+            self.std = stats['std']
+
+        # Apply the standard Gaussian normalization
+        self.samples = (self.samples - self.mean) / self.std
+        # -------------------------------
 
     def __len__(self):
         return self.samples.shape[0]

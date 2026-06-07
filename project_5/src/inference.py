@@ -1,6 +1,7 @@
 """Inference helpers for motion diffusion model."""
 import os
 import torch
+import numpy as np
 
 from diffusion import GaussianDiffusion
 from model import MotionDenoiser
@@ -53,4 +54,15 @@ def sample_motion(model, diffusion, label_index, n_samples=1, device=None):
     labels = torch.full((n_samples,), int(label_index), device=device, dtype=torch.long)
     shape = (n_samples, SEQUENCE_LENGTH, NUM_JOINTS, 3)
     generated = diffusion.p_sample_loop(model, shape=shape, labels=labels, device=device)
-    return generated.cpu().numpy()
+    generated = generated.cpu().numpy()
+    
+    # --- NEW: Un-normalize the output ---
+    stats_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed', 'stats.npz')
+    if os.path.exists(stats_path):
+        stats = np.load(stats_path)
+        generated = (generated * stats['std']) + stats['mean']
+    else:
+        print("[warn] stats.npz not found, output is still normalized!")
+    # ------------------------------------
+        
+    return generated

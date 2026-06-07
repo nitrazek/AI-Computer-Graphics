@@ -97,14 +97,32 @@ def normalize_clip(clip):
     return swapped
 
 
-def make_windows(clip):
+def make_windows(clip, variance_threshold=0.001):
     """Resample to target fps and slice into fixed-length windows of [SEQUENCE_LENGTH, 15, 3]."""
     downsampled = clip[::FRAME_STRIDE]
     if downsampled.shape[0] < SEQUENCE_LENGTH:
         return []
     windows = []
     for start in range(0, downsampled.shape[0] - SEQUENCE_LENGTH + 1, WINDOW_STRIDE):
-        windows.append(downsampled[start:start + SEQUENCE_LENGTH].astype(np.float32))
+        window = downsampled[start:start + SEQUENCE_LENGTH].astype(np.float32).copy()
+        
+        # --- NEW: Check for actual movement ---
+        # Calculate the variance of all joint positions over the time axis (axis 0).
+        # A high variance means the joints are moving; low variance means they are static.
+        motion_variance = np.var(window, axis=0).mean()
+        
+        if motion_variance < variance_threshold:
+            # Skip this window because the character is mostly standing still
+            continue
+        # --------------------------------------
+        
+        # Center the window horizontally based on the pelvis of the first frame
+        pelvis_x0 = window[0, int(Joint.PELVIS), 0]
+        pelvis_y0 = window[0, int(Joint.PELVIS), 1]
+        window[..., 0] -= pelvis_x0
+        window[..., 1] -= pelvis_y0
+        
+        windows.append(window)
     return windows
 
 
